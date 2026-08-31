@@ -4,75 +4,153 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CUES, createSpeaker, _internals } from '../lib/sound.mjs';
+import { CUES, PROVENANCE, createSpeaker, _internals } from '../lib/sound.mjs';
 
 const { renderTones, toWav, RATE } = _internals;
 
+/**
+ * Peak frequencies in a window of a rendered cue.
+ *
+ * A plain DFT over a Hann-windowed slice — slow, but this runs over a few
+ * thousand samples and avoids pulling in a dependency just to check spectra.
+ */
+function peaks(samples, fromSec, toSec, count) {
+  const from = Math.floor(fromSec * RATE);
+  const to = Math.min(Math.floor(toSec * RATE), samples.length);
+  const n = to - from;
+  if (n <= 0) return [];
+
+  // Resolution of ~5 Hz is plenty to separate partials over 1200 Hz apart.
+  const step = 2;
+  const bins = [];
+
+  for (let freq = 1000; freq <= 6000; freq += step) {
+    let re = 0;
+    let im = 0;
+    for (let i = 0; i < n; i++) {
+      // Hann window, so neighbouring partials do not smear into each other.
+      const w = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (n - 1)));
+      const s = samples[from + i] * w;
+      const ang = (2 * Math.PI * freq * i) / RATE;
+      re += s * Math.cos(ang);
+      im -= s * Math.sin(ang);
+    }
+    bins.push([freq, Math.hypot(re, im)]);
+  }
+
+  // Local maxima, strongest first.
+  const maxima = bins
+    .filter((b, i) => i > 0 && i < bins.length - 1 && b[1] > bins[i - 1][1] && b[1] >= bins[i + 1][1])
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, count)
+    .map(([freq]) => freq)
+    .sort((a, b) => a - b);
+
+  return maxima;
+}
+
+const within = (actual, expected, tolerance = 0.01) =>
+  Math.abs(actual - expected) / expected <= tolerance;
+
 test('every cue the animation asks for exists', () => {
-  for (const cue of ['boot', 'tick', 'affirm', 'negate', 'withhold', 'klaxon', 'approved', 'rejected']) {
+  for (const cue of ['boot', 'tick', 'think', 'agree', 'reject', 'withhold', 'klaxon', 'approved', 'rejected']) {
     assert.ok(Array.isArray(CUES[cue]) && CUES[cue].length, `missing cue: ${cue}`);
   }
 });
 
-test('the klaxon alternates two fundamentals over several cycles', () => {
-  // Each blast is a saw fundamental with a square an octave below it.
-  const fundamentals = [...new Set(CUES.klaxon.filter((t) => t.wave === 'saw').map((t) => t.freq))];
-
-  assert.equal(fundamentals.length, 2, 'a high and a low blast');
-  assert.ok(CUES.klaxon.length >= 16, 'several cycles, two voices each');
-});
-
-test('the klaxon sustains rather than decaying, which is what makes it a horn', () => {
-  for (const tone of CUES.klaxon) {
-    assert.equal(tone.env, 'gate', 'every klaxon blast is gated, not plucked');
+test('every cue declares whether it is measured or derived', () => {
+  for (const cue of Object.keys(CUES)) {
+    assert.ok(['measured', 'derived'].includes(PROVENANCE[cue]), `${cue} has no provenance`);
   }
 });
 
-test('the klaxon blasts do not overlap each other', () => {
-  const saws = CUES.klaxon
-    .filter((t) => t.wave === 'saw')
-    .sort((a, b) => a.start - b.start);
+test('reject reproduces its measured partials: 1266 and 2531 Hz', () => {
+  const found = peaks(renderTones(CUES.reject), 0.1, 0.9, 2);
 
-  for (let i = 1; i < saws.length; i++) {
-    assert.ok(
-      saws[i].start >= saws[i - 1].start + saws[i - 1].dur,
-      `blast ${i} starts before blast ${i - 1} ends`,
-    );
+  assert.equal(found.length, 2, `expected two partials, got ${found}`);
+  assert.ok(within(found[0], 1266), `fundamental ${found[0]} is not 1266`);
+  assert.ok(within(found[1], 2531), `second partial ${found[1]} is not 2531`);
+});
+
+test('think reproduces its measured partials: 1705, 3410 and 5115 Hz', () => {
+  const found = peaks(renderTones(CUES.think), 0.02, 0.25, 3);
+
+  assert.equal(found.length, 3, `expected three partials, got ${found}`);
+  assert.ok(within(found[0], 1705), `${found[0]} is not 1705`);
+  assert.ok(within(found[1], 3410), `${found[1]} is not 3410`);
+  assert.ok(within(found[2], 5115), `${found[2]} is not 5115`);
+});
+
+test("think's second partial is louder than its fundamental", () => {
+  // The measurement says 2f dominates; a reimplementation that "corrects" this
+  // toward the expected balance is wrong.
+  const [f, twoF] = [CUES.think[0].amp, CUES.think[1].amp];
+  assert.ok(twoF > f, `2f (${twoF}) must exceed f (${f})`);
+});
+
+test('think is three gate-on regions separated by silence', () => {
+  const samples = renderTones(CUES.think);
+  const onAt = (sec) => Math.abs(samples[Math.floor(sec * RATE)]) > 0.05;
+
+  // 277 ms on, then 165 ms silent, repeating on a 442 ms period.
+  for (const pulse of [0, 1, 2]) {
+    assert.ok(onAt(pulse * 0.442 + 0.13), `pulse ${pulse} should be sounding`);
+    assert.ok(!onAt(pulse * 0.442 + 0.36), `gap after pulse ${pulse} should be silent`);
   }
 });
 
-test('a gated envelope holds full level through the middle of the tone', async () => {
-  const { renderTones } = _internals;
-  const gated = renderTones([{ start: 0, dur: 0.4, freq: 400, wave: 'square', gain: 1, env: 'gate' }]);
-  const plucked = renderTones([{ start: 0, dur: 0.4, freq: 400, wave: 'square', gain: 1 }]);
+test('agree rises: 1688 Hz then 2531 Hz', () => {
+  const samples = renderTones(CUES.agree);
+  const first = peaks(samples, 0.01, 0.12, 1);
+  const second = peaks(samples, 0.16, 0.4, 1);
 
-  const peakNear = (buf, fraction) => {
-    const centre = Math.floor(buf.length * fraction);
+  assert.ok(within(first[0], 1688), `first note ${first[0]} is not 1688`);
+  assert.ok(within(second[0], 2531), `second note ${second[0]} is not 2531`);
+  assert.ok(second[0] > first[0], 'the figure must rise');
+});
+
+test('every pitch in the set comes from the measured partials', () => {
+  // SPEC: build new cues from the measured partials rather than inventing
+  // unrelated pitches. 1688/3376/5062 are agree's derived fifth, itself built
+  // on reject's measured 2531.
+  const allowed = new Set([1266, 2531, 1705, 3410, 5115, 1688, 3376, 5062]);
+
+  for (const [name, tones] of Object.entries(CUES)) {
+    for (const tone of tones) {
+      assert.ok(allowed.has(tone.freq), `${name} uses unmeasured pitch ${tone.freq} Hz`);
+    }
+  }
+});
+
+test('the klaxon alternates reject and think fundamentals', () => {
+  const fundamentals = [...new Set(CUES.klaxon.map((t) => t.freq))];
+
+  assert.ok(fundamentals.includes(1266), 'carries the rejection tone');
+  assert.ok(fundamentals.includes(1705), 'carries the deliberation tone');
+  assert.ok(CUES.klaxon.length >= 16, 'several cycles, two partials each');
+});
+
+test('rendered audio is finite and normalized below clipping', () => {
+  for (const [name, tones] of Object.entries(CUES)) {
+    const samples = renderTones(tones);
     let peak = 0;
-    for (let i = centre - 200; i < centre + 200; i++) peak = Math.max(peak, Math.abs(buf[i] ?? 0));
-    return peak;
-  };
-
-  assert.ok(peakNear(gated, 0.8) > 0.9, 'gated tone is still at full level late on');
-  assert.ok(peakNear(plucked, 0.8) < 0.4, 'plucked tone has decayed by then');
+    for (const s of samples) {
+      assert.ok(Number.isFinite(s), `${name} produced a non-finite sample`);
+      peak = Math.max(peak, Math.abs(s));
+    }
+    assert.ok(peak > 0.05, `${name} is inaudibly quiet (peak ${peak})`);
+    assert.ok(peak <= 1, `${name} clips (peak ${peak})`);
+  }
 });
 
-test('rendered audio is the expected length and stays in range', () => {
-  const samples = renderTones(CUES.affirm);
-  const span = Math.max(...CUES.affirm.map((t) => t.start + t.dur));
-
-  assert.ok(samples.length >= span * RATE, 'covers every tone');
-  assert.ok(samples.every((s) => Number.isFinite(s)), 'no NaN in the buffer');
-});
-
-test('toWav emits a valid 16-bit mono PCM header', () => {
+test('toWav emits a valid 16-bit mono PCM header at 48 kHz', () => {
   const wav = toWav(renderTones(CUES.tick));
 
   assert.equal(wav.subarray(0, 4).toString(), 'RIFF');
   assert.equal(wav.subarray(8, 12).toString(), 'WAVE');
   assert.equal(wav.readUInt16LE(20), 1, 'PCM format');
   assert.equal(wav.readUInt16LE(22), 1, 'mono');
-  assert.equal(wav.readUInt32LE(24), RATE);
+  assert.equal(wav.readUInt32LE(24), 48000);
   assert.equal(wav.readUInt16LE(34), 16, '16-bit samples');
   assert.equal(wav.readUInt32LE(4), wav.length - 8, 'RIFF size matches the buffer');
 });
@@ -92,15 +170,12 @@ test('an unknown cue is ignored rather than throwing', () => {
 
 test('a supplied sound file is preferred over the synthesized cue', () => {
   const dir = mkdtempSync(join(tmpdir(), 'magi-cues-'));
-  const supplied = join(dir, 'klaxon.wav');
-  writeFileSync(supplied, toWav(renderTones(CUES.tick)));
+  writeFileSync(join(dir, 'klaxon.wav'), toWav(renderTones(CUES.tick)));
 
   try {
-    // `enabled:false` returns an inert speaker, so exercise resolution directly
-    // through a speaker that never spawns a player.
     const speaker = createSpeaker({ enabled: true, soundDir: dir });
     assert.doesNotThrow(() => speaker.play('klaxon'));
-    assert.doesNotThrow(() => speaker.play('affirm'), 'falls back to synthesis');
+    assert.doesNotThrow(() => speaker.play('agree'), 'falls back to synthesis');
     speaker.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

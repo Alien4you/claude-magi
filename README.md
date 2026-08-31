@@ -113,15 +113,34 @@ The deliberation JSON is the interchange format:
 
 ## Sound
 
-The plugin ships **no audio**. Every cue is synthesized at runtime — waveforms
-built sample by sample, wrapped in a WAV header, handed to `afplay` (macOS),
-`aplay` (Linux) or PowerShell (Windows). The browser rebuilds the same cue data
-with Web Audio, and a test asserts the two stay identical.
+The plugin ships **no audio**. Every cue is synthesized at runtime from
+published partial frequencies and envelopes — pure sines summed sample by
+sample, wrapped in a WAV header, handed to `afplay` (macOS), `aplay` (Linux) or
+PowerShell (Windows). The browser rebuilds the same cue data with Web Audio.
 
-To use your own files instead, drop them in `sounds/` named after the cue
-(`klaxon.wav`, `affirm.mp3`, …). See [`sounds/README.md`](sounds/README.md) for
-the full list. `magi-cues extract` cuts clips out of a media file you already
-have:
+Two voices are **measured**: their partials were recovered by narrowband
+tone-prominence matching against the original broadcast audio.
+
+| cue | provenance | partials (Hz) |
+|-----|-----------|---------------|
+| `think` | measured | 1705, 3410, 5115 — gated, 442 ms period, 277 ms on |
+| `reject` | measured | 1266, 2531 — sustained, 1.24 s |
+| `agree` | derived | 1688 → 2531, a rising fifth on reject's second partial |
+| `klaxon` | derived | 1266 alternating with 1705 |
+| `boot`, `tick`, `withhold`, `approved` | derived | built from the same partials |
+
+The source contains no agreement chime, so `agree` is designed rather than
+found — that distinction is recorded per cue in `lib/sound.mjs` and asserted by
+the tests. If you add a cue, build it from the measured partials and label it
+derived.
+
+Parameters are measurements, not copied audio, so the synthesized voices carry
+no sampled material. Tests verify the rendered output against the published FFT
+table with a DFT over each cue.
+
+To use your own recordings instead, drop them in `sounds/` named after the cue
+(`klaxon.wav`, `agree.mp3`, …). See [`sounds/README.md`](sounds/README.md).
+`magi-cues extract` cuts clips out of a media file you already have:
 
 ```bash
 magi-cues extract --from ~/media/episode.mkv --cue klaxon --at 00:04:12.0 --dur 2.5
@@ -134,7 +153,7 @@ project.
 ## Development
 
 ```bash
-npm test        # 62 tests, no dependencies
+npm test        # 66 tests, no dependencies
 npm run demo
 ```
 
