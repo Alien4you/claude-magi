@@ -1,0 +1,236 @@
+#!/usr/bin/env node
+/**
+ * magi-cues — manage the sound cues MAGI plays.
+ *
+ * The plugin ships no audio: every cue is synthesized unless a file of the
+ * same name sits in the sound directory. This tool lists what is present,
+ * plays cues back so you can check them, and cuts new ones out of a media file
+ * you already have on disk.
+ *
+ *   magi-cues list
+ *   magi-cues play [cue]
+ *   magi-cues extract --from <media> --cue klaxon --at 00:04:12.0 --dur 2.5
+ *   magi-cues remove <cue>
+ *
+ * `extract` reads a local file you point it at and shells out to ffmpeg. It
+ * never downloads anything.
+ */
+
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve, basename } from 'node:path';
+import process from 'node:process';
+
+import { CUES, createSpeaker } from '../lib/sound.mjs';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_DIR = join(HERE, '..', 'sounds');
+const EXTS = ['.wav', '.mp3', '.aiff', '.aif', '.m4a', '.ogg'];
+
+const CUE_NAMES = Object.keys(CUES);
+
+const DESCRIPTIONS = {
+  boot: 'terminal powers up',
+  tick: 'a unit comes online',
+  affirm: 'a unit returns 肯定 / APPROVE',
+  negate: 'a unit returns 否定 / REJECT',
+  withhold: 'a unit returns 保留 / ABSTAIN',
+  klaxon: 'a unit dissents from the majority',
+  approved: 'final 可決 stamp',
+  rejected: 'final 否決 stamp',
+};
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function soundDir(opts) {
+  return resolve(opts.dir ?? process.env.MAGI_SOUND_DIR ?? DEFAULT_DIR);
+}
+
+/** The file supplied for `cue`, or null when the synthesized cue is in use. */
+function suppliedFile(dir, cue) {
+  for (const ext of EXTS) {
+    const path = join(dir, cue + ext);
+    if (existsSync(path)) return path;
+  }
+  return null;
+}
+
+function parseArgs(argv) {
+  const opts = { _: [] };
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--from') opts.from = argv[++i];
+    else if (arg === '--cue') opts.cue = argv[++i];
+    else if (arg === '--at') opts.at = argv[++i];
+    else if (arg === '--dur') opts.dur = argv[++i];
+    else if (arg === '--dir') opts.dir = argv[++i];
+    else if (arg === '--force') opts.force = true;
+    else if (arg === '--help' || arg === '-h') opts.help = true;
+    else opts._.push(arg);
+  }
+  return opts;
+}
+
+function usage() {
+  process.stdout.write(`magi-cues — manage MAGI sound cues
+
+  magi-cues list                        show every cue and where it comes from
+  magi-cues play [cue]                  play one cue, or all of them in order
+  magi-cues extract --from <media> --cue <name> --at <ts> [--dur <secs>]
+                                        cut a cue out of a local media file
+  magi-cues remove <cue>                delete a supplied cue, back to synthesis
+
+Options:
+  --dir <path>   sound directory (default: ./sounds, or MAGI_SOUND_DIR)
+  --force        overwrite an existing cue file
+
+The plugin ships no audio. 'extract' reads a file already on your disk and
+never downloads anything; whatever you put in the sound directory is yours and
+is git-ignored.
+
+Cues: ${CUE_NAMES.join(', ')}
+`);
+}
+
+function cmdList(opts) {
+  const dir = soundDir(opts);
+  process.stdout.write(`sound directory: ${dir}${existsSync(dir) ? '' : '  (missing)'}\n\n`);
+
+  const rows = CUE_NAMES.map((cue) => {
+    const file = existsSync(dir) ? suppliedFile(dir, cue) : null;
+    const source = file ? `${basename(file)} (${statSync(file).size} bytes)` : 'synthesized';
+    return [cue, source, DESCRIPTIONS[cue] ?? ''];
+  });
+
+  const w0 = Math.max(...rows.map((r) => r[0].length));
+  const w1 = Math.max(...rows.map((r) => r[1].length));
+
+  for (const [cue, source, note] of rows) {
+    process.stdout.write(`  ${cue.padEnd(w0)}  ${source.padEnd(w1)}  ${note}\n`);
+  }
+
+  const supplied = rows.filter((r) => r[1] !== 'synthesized').length;
+  process.stdout.write(`\n${supplied} of ${rows.length} cue(s) supplied, the rest synthesized\n`);
+}
+
+async function cmdPlay(opts) {
+  const dir = soundDir(opts);
+  const wanted = opts._[1] ? [opts._[1]] : CUE_NAMES;
+
+  for (const cue of wanted) {
+    if (!CUE_NAMES.includes(cue)) {
+      process.stderr.write(`magi-cues: unknown cue '${cue}'. Known: ${CUE_NAMES.join(', ')}\n`);
+      process.exit(2);
+    }
+  }
+
+  const speaker = createSpeaker({ enabled: true, soundDir: dir });
+  for (const cue of wanted) {
+    const file = suppliedFile(dir, cue);
+    process.stdout.write(`▸ ${cue.padEnd(10)} ${file ? basename(file) : 'synthesized'}\n`);
+    speaker.play(cue);
+    await sleep(cue === 'klaxon' ? 2800 : 1100);
+  }
+  speaker.close();
+}
+
+function cmdExtract(opts) {
+  if (!opts.from || !opts.cue || !opts.at) {
+    process.stderr.write('magi-cues: extract needs --from <media> --cue <name> --at <timestamp>\n');
+    process.exit(2);
+  }
+  if (!CUE_NAMES.includes(opts.cue)) {
+    process.stderr.write(`magi-cues: unknown cue '${opts.cue}'. Known: ${CUE_NAMES.join(', ')}\n`);
+    process.exit(2);
+  }
+
+  const source = resolve(opts.from);
+  if (!existsSync(source)) {
+    process.stderr.write(`magi-cues: no such file: ${source}\n`);
+    process.exit(2);
+  }
+
+  const probe = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' });
+  if (probe.error || probe.status !== 0) {
+    process.stderr.write('magi-cues: ffmpeg not found. Install it (brew install ffmpeg) and retry.\n');
+    process.exit(2);
+  }
+
+  const dir = soundDir(opts);
+  mkdirSync(dir, { recursive: true });
+
+  const existing = suppliedFile(dir, opts.cue);
+  if (existing && !opts.force) {
+    process.stderr.write(`magi-cues: ${basename(existing)} already exists. Pass --force to replace it.\n`);
+    process.exit(2);
+  }
+
+  const out = join(dir, `${opts.cue}.wav`);
+  const args = [
+    '-hide_banner',
+    '-loglevel', 'error',
+    '-ss', String(opts.at),
+    '-i', source,
+    '-t', String(opts.dur ?? 2.5),
+    '-ac', '1',
+    '-ar', '22050',
+    '-y',
+    out,
+  ];
+
+  const run = spawnSync('ffmpeg', args, { stdio: ['ignore', 'inherit', 'inherit'] });
+  if (run.status !== 0) {
+    process.stderr.write(`magi-cues: ffmpeg failed (exit ${run.status})\n`);
+    process.exit(run.status ?? 1);
+  }
+  if (existing && existing !== out) rmSync(existing, { force: true });
+
+  process.stdout.write(
+    `cut ${opts.cue} from ${basename(source)} @ ${opts.at} (${opts.dur ?? 2.5}s) → ${out}\n` +
+      `check it with:  magi-cues play ${opts.cue}\n`,
+  );
+}
+
+function cmdRemove(opts) {
+  const dir = soundDir(opts);
+  const cue = opts._[1];
+
+  if (!cue) {
+    process.stderr.write('magi-cues: remove needs a cue name\n');
+    process.exit(2);
+  }
+
+  const file = suppliedFile(dir, cue);
+  if (!file) {
+    process.stdout.write(`${cue} is already synthesized; nothing to remove\n`);
+    return;
+  }
+
+  rmSync(file, { force: true });
+  process.stdout.write(`removed ${basename(file)}; ${cue} falls back to synthesis\n`);
+}
+
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  const cmd = opts._[0];
+
+  if (opts.help || !cmd) return usage();
+
+  switch (cmd) {
+    case 'list': return cmdList(opts);
+    case 'play': return cmdPlay(opts);
+    case 'extract': return cmdExtract(opts);
+    case 'remove': return cmdRemove(opts);
+    default:
+      process.stderr.write(`magi-cues: unknown command '${cmd}'\n`);
+      usage();
+      process.exit(2);
+  }
+}
+
+main().catch((err) => {
+  process.stderr.write(`magi-cues: ${err?.stack ?? err}\n`);
+  process.exit(1);
+});

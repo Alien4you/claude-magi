@@ -1,0 +1,110 @@
+#!/usr/bin/env node
+/**
+ * magi-render — render a MAGI deliberation as a self-contained HTML page.
+ *
+ * Takes the same deliberation JSON as `magi-deliberate` (file argument, stdin,
+ * or --demo), writes one HTML file, and opens it unless --no-open is passed.
+ *
+ *   magi-render --demo
+ *   magi-render verdict.json --out /tmp/magi.html
+ */
+
+import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import process from 'node:process';
+
+import { tally } from '../lib/verdict.mjs';
+import { renderHtml } from '../lib/render.mjs';
+import { summarize } from '../lib/verdict.mjs';
+import { DEMO } from '../lib/demo.mjs';
+
+function parseArgs(argv) {
+  const opts = { open: true, demo: false, out: null, file: null };
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--demo') opts.demo = true;
+    else if (arg === '--no-open') opts.open = false;
+    else if (arg === '--out') opts.out = argv[++i];
+    else if (arg === '--help' || arg === '-h') opts.help = true;
+    else if (!arg.startsWith('-')) opts.file = arg;
+  }
+  return opts;
+}
+
+function openInBrowser(path) {
+  const [cmd, args] =
+    process.platform === 'darwin'
+      ? ['open', [path]]
+      : process.platform === 'win32'
+        ? ['cmd', ['/c', 'start', '', path]]
+        : ['xdg-open', [path]];
+
+  try {
+    const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+    child.on('error', () => {
+      process.stderr.write(`magi-render: could not open a browser; the page is at ${path}\n`);
+    });
+    child.unref();
+  } catch {
+    process.stderr.write(`magi-render: could not open a browser; the page is at ${path}\n`);
+  }
+}
+
+function main() {
+  const opts = parseArgs(process.argv.slice(2));
+
+  if (opts.help) {
+    process.stdout.write('usage: magi-render [file.json] [--demo] [--out path] [--no-open]\n');
+    return;
+  }
+
+  let raw;
+  if (opts.demo) raw = DEMO;
+  else {
+    let text = '';
+    try {
+      text = opts.file ? readFileSync(opts.file, 'utf8') : readFileSync(0, 'utf8');
+    } catch {
+      text = '';
+    }
+    if (!text.trim()) {
+      process.stderr.write('magi-render: no deliberation JSON on stdin or in a file argument\n');
+      process.exit(2);
+    }
+    try {
+      raw = JSON.parse(text);
+    } catch (err) {
+      process.stderr.write(`magi-render: could not parse JSON — ${err.message}\n`);
+      process.exit(2);
+    }
+  }
+
+  let result;
+  try {
+    result = tally(raw.votes);
+  } catch (err) {
+    process.stderr.write(`magi-render: ${err.message}\n`);
+    process.exit(2);
+  }
+
+  const html = renderHtml({
+    proposition: raw.proposition ?? '(no proposition supplied)',
+    target: raw.target ?? '—',
+    result,
+  });
+
+  const out = opts.out
+    ? resolve(opts.out)
+    : join(mkdtempSync(join(tmpdir(), 'magi-')), 'magi.html');
+
+  writeFileSync(out, html, 'utf8');
+  process.stdout.write(`${summarize(result)}\n${out}\n`);
+
+  if (opts.open) openInBrowser(out);
+  process.exit(result.decision === 'APPROVED' ? 0 : 1);
+}
+
+main();

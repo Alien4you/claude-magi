@@ -1,0 +1,41 @@
+MAGI
+Copyright 2026 Aram Ramazyan
+
+This product includes software developed by Tomasz Rewak.
+
+The display geometry, colour palette and flicker cadence used by the HTML
+renderer (lib/render.mjs) are derived from the stylesheet of
+https://github.com/TomaszRewak/MAGI — specifically the unit clip-path
+polygons, the grid layout of the console, the status palette
+(#ff8d00 / #52e691 / #a41413 / #3caee0) and the flicker keyframes.
+
+That work is used under the MIT License:
+
+    MIT License
+
+    Copyright (c) 2023 Tomasz Rewak
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+
+---
+
+Neon Genesis Evangelion is © GAINAX / khara. This is an unaffiliated fan
+project. No audio, images, or other assets from the series are included or
+distributed here; all sound cues are synthesized at runtime from original
+waveform definitions.

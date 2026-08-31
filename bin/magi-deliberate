@@ -1,0 +1,108 @@
+#!/usr/bin/env node
+/**
+ * magi-deliberate — play a MAGI deliberation in the terminal.
+ *
+ * Reads a deliberation JSON from a file argument or stdin:
+ *
+ *   {
+ *     "proposition": "Migrate billing off MySQL onto Postgres",
+ *     "target": "git diff HEAD",
+ *     "votes": [
+ *       { "agent": "MELCHIOR-1", "verdict": "APPROVE", "headline": "...",
+ *         "findings": [{ "file": "a.ts", "line": 12,
+ *                        "severity": "major", "summary": "..." }] },
+ *       ...
+ *     ]
+ *   }
+ *
+ * Flags: --silent (no audio), --no-animate (one static frame),
+ *        --speed <n> (1 = normal, 0 = instant), --demo
+ */
+
+import { readFileSync } from 'node:fs';
+import process from 'node:process';
+
+import { tally } from '../lib/verdict.mjs';
+import { deliberate } from '../lib/animate.mjs';
+import { DEMO } from '../lib/demo.mjs';
+
+
+function parseArgs(argv) {
+  const opts = { silent: false, animate: true, speed: 1, demo: false, file: null, soundDir: null };
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--silent') opts.silent = true;
+    else if (arg === '--no-animate') opts.animate = false;
+    else if (arg === '--demo') opts.demo = true;
+    else if (arg === '--speed') opts.speed = Number(argv[++i]);
+    else if (arg === '--sounds') opts.soundDir = argv[++i];
+    else if (arg === '--help' || arg === '-h') opts.help = true;
+    else if (!arg.startsWith('-')) opts.file = arg;
+  }
+
+  if (!Number.isFinite(opts.speed) || opts.speed < 0) opts.speed = 1;
+  return opts;
+}
+
+function readStdin() {
+  try {
+    return readFileSync(0, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
+
+  if (opts.help) {
+    process.stdout.write(
+      'usage: magi-deliberate [file.json] [--demo] [--silent] [--no-animate]\n' +
+        '                       [--speed n] [--sounds dir]\n',
+    );
+    return;
+  }
+
+  let raw;
+  if (opts.demo) raw = DEMO;
+  else {
+    const text = opts.file ? readFileSync(opts.file, 'utf8') : readStdin();
+    if (!text.trim()) {
+      process.stderr.write('magi-deliberate: no deliberation JSON on stdin or in a file argument\n');
+      process.exit(2);
+    }
+    try {
+      raw = JSON.parse(text);
+    } catch (err) {
+      process.stderr.write(`magi-deliberate: could not parse JSON — ${err.message}\n`);
+      process.exit(2);
+    }
+  }
+
+  let result;
+  try {
+    result = tally(raw.votes);
+  } catch (err) {
+    process.stderr.write(`magi-deliberate: ${err.message}\n`);
+    process.exit(2);
+  }
+
+  await deliberate({
+    proposition: raw.proposition ?? '(no proposition supplied)',
+    target: raw.target ?? '—',
+    result,
+    sound: !opts.silent,
+    animate: opts.animate && process.stdout.isTTY,
+    speed: opts.speed,
+    soundDir: opts.soundDir,
+  });
+
+  // Exit code carries the verdict, so hooks and scripts can gate on it.
+  process.exit(result.decision === 'APPROVED' ? 0 : 1);
+}
+
+main().catch((err) => {
+  process.stderr.write(`magi-deliberate: ${err?.stack ?? err}\n`);
+  process.exit(1);
+});

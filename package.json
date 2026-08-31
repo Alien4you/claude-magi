@@ -1,0 +1,18 @@
+{
+  "name": "claude-magi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MAGI System deliberation for Claude Code: three agents review a proposition and vote, with a terminal verdict animation.",
+  "bin": {
+    "magi-deliberate": "./bin/magi-deliberate"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "demo": "./bin/magi-deliberate --demo"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "Apache-2.0"
+}

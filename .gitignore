@@ -1,0 +1,4 @@
+node_modules/
+*.log
+magi-demo.html
+.DS_Store
