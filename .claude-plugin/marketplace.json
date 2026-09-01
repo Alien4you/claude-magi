@@ -1,5 +1,6 @@
 {
   "name": "claude-magi",
+  "description": "The MAGI plugin: three agents review a change or decision on separate axes and vote.",
   "owner": {
     "name": "Aram Ramazyan"
   },
@@ -7,7 +8,7 @@
     {
       "name": "magi",
       "source": "./",
-      "description": "Three agents — Melchior, Balthasar, Casper — independently review a code change or architecture decision and vote. Majority carries; dissent raises the alarm."
+      "description": "Three agents \u2014 Melchior, Balthasar, Casper \u2014 independently review a code change or architecture decision and vote. Majority carries; dissent raises the alarm."
     }
   ]
 }

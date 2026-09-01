@@ -46,14 +46,49 @@ closed to 否決 — an undecided MAGI never green-lights anything.
 
 ## Install
 
+The repo self-hosts a marketplace, so it installs as a normal tracked plugin:
+
 ```bash
-claude --plugin-dir ~/Documents/Projects/claude-magi
+git clone https://github.com/Alien4you/claude-magi.git
+claude plugin marketplace add ./claude-magi
+claude plugin install magi@claude-magi
 ```
 
-Then `/magi`. Run `/reload-plugins` after editing anything.
+Or point the marketplace straight at GitHub, without cloning:
 
-To load it every session without the flag, see
-[skills-directory plugins](https://code.claude.com/docs/en/plugins-reference#skills-directory-plugins).
+```bash
+claude plugin marketplace add Alien4you/claude-magi
+claude plugin install magi@claude-magi
+```
+
+**Restart Claude Code, then `/magi`.** The agents register at session start, so
+a session that was already running when you installed will load the skill but
+not the three units — which fails at dispatch. Confirm what registered with:
+
+```bash
+claude plugin details magi
+```
+
+You want to see `Skills (1)` **and** `Agents (3)`.
+
+Installing copies the plugin into `~/.claude/plugins/cache/`, pinned to a
+commit. It is a copy, not a link, so editing the repo does not change what runs
+— pick up changes with:
+
+```bash
+claude plugin marketplace update claude-magi
+claude plugin install magi@claude-magi
+```
+
+### While developing
+
+To run the working tree directly, skipping the copy:
+
+```bash
+claude --plugin-dir ~/path/to/claude-magi
+```
+
+`/reload-plugins` picks up edits to skills and agents in that mode.
 
 ## Use
 
