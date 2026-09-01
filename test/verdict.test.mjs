@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { tally, AGENTS } from '../lib/verdict.mjs';
+import { tally, summarize, AGENTS } from '../lib/verdict.mjs';
 
 const vote = (agent, verdict) => ({ agent, verdict, headline: `${agent} says ${verdict}` });
 
@@ -162,4 +162,48 @@ test('a duplicate agent is rejected', () => {
 
 test('no votes at all is rejected', () => {
   assert.throws(() => tally([]), /three/i);
+});
+
+test('summarize reports unanimous only on a true 3-0, not merely zero dissenters', () => {
+  // REJECT/ABSTAIN/ABSTAIN: the lone REJECT carries, so there are no
+  // dissenters, but this is not unanimous — two units never weighed in.
+  const r = tally([
+    vote('MELCHIOR-1', 'REJECT'),
+    vote('BALTHASAR-2', 'ABSTAIN'),
+    vote('CASPER-3', 'ABSTAIN'),
+  ]);
+
+  assert.equal(r.dissenters.length, 0);
+  assert.equal(r.unanimous, false);
+  assert.equal(summarize(r), '否決 / REJECTED (1-0) — BALTHASAR-2, CASPER-3 abstain');
+});
+
+test('summarize reports a true unanimous 3-0', () => {
+  const r = tally([
+    vote('MELCHIOR-1', 'APPROVE'),
+    vote('BALTHASAR-2', 'APPROVE'),
+    vote('CASPER-3', 'APPROVE'),
+  ]);
+
+  assert.equal(summarize(r), '可決 / APPROVED (3-0) — unanimous');
+});
+
+test('summarize names the dissenter on a 2-1 split', () => {
+  const r = tally([
+    vote('MELCHIOR-1', 'APPROVE'),
+    vote('BALTHASAR-2', 'APPROVE'),
+    vote('CASPER-3', 'REJECT'),
+  ]);
+
+  assert.equal(summarize(r), '可決 / APPROVED (2-1) — CASPER-3 dissents');
+});
+
+test('summarize reports a deadlock as failing closed', () => {
+  const r = tally([
+    vote('MELCHIOR-1', 'APPROVE'),
+    vote('BALTHASAR-2', 'REJECT'),
+    vote('CASPER-3', 'ABSTAIN'),
+  ]);
+
+  assert.equal(summarize(r), '否決 / REJECTED (1-1) — deadlocked, failing closed');
 });
