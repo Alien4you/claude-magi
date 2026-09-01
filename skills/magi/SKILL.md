@@ -79,32 +79,19 @@ Write the three verdicts to a JSON file in the system temp directory:
 }
 ```
 
-Then render it. The output mode is read from, in order: an explicit
-`--chat` / `--tty` / `--html` in `$ARGUMENTS`, then `$MAGI_OUTPUT`, then `chat`.
-
-**chat** (default) — run the renderer and show the result inline:
+Then render it as a self-contained HTML page and open it — this is the only
+output mode:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/bin/magi-deliberate <verdict.json> --no-animate --silent
+node <plugin-root>/bin/magi-render <verdict.json>
 ```
 
-Print its output in a fenced block. Terminal chat output is static, so there is
-no motion and no sound in this mode; that is expected.
+`<plugin-root>` is the directory containing this `skills/magi/SKILL.md`, two
+levels up — i.e. wherever `bin/magi-render` sits relative to this file. Use
+`${CLAUDE_PLUGIN_ROOT}` if it is set; otherwise resolve it yourself from the
+path this skill loaded from.
 
-**tty** — tell the user to run it themselves, because the animation needs a
-real terminal, which a tool call does not have:
-
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/bin/magi-deliberate <verdict.json>
-```
-
-**html** — render the page and open it:
-
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/bin/magi-render <verdict.json>
-```
-
-Both binaries exit `0` on 可決 and `1` on 否決, so a failed exit code is the
+The binary exits `0` on 可決 and `1` on 否決, so a failed exit code is the
 verdict, not an error. Do not report it as a failure.
 
 ## 5. Report

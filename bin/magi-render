@@ -18,7 +18,7 @@ import process from 'node:process';
 import { tally } from '../lib/verdict.mjs';
 import { renderHtml } from '../lib/render.mjs';
 import { summarize } from '../lib/verdict.mjs';
-import { DEMO } from '../lib/demo.mjs';
+import { randomDemo } from '../lib/demo.mjs';
 
 function parseArgs(argv) {
   const opts = { open: true, demo: false, out: null, file: null };
@@ -62,7 +62,7 @@ function main() {
   }
 
   let raw;
-  if (opts.demo) raw = DEMO;
+  if (opts.demo) raw = randomDemo();
   else {
     let text = '';
     try {

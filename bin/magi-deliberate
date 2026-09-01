@@ -24,7 +24,7 @@ import process from 'node:process';
 
 import { tally } from '../lib/verdict.mjs';
 import { deliberate } from '../lib/animate.mjs';
-import { DEMO } from '../lib/demo.mjs';
+import { randomDemo } from '../lib/demo.mjs';
 
 
 function parseArgs(argv) {
@@ -65,7 +65,7 @@ async function main() {
   }
 
   let raw;
-  if (opts.demo) raw = DEMO;
+  if (opts.demo) raw = randomDemo();
   else {
     const text = opts.file ? readFileSync(opts.file, 'utf8') : readStdin();
     if (!text.trim()) {

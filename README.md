@@ -69,18 +69,14 @@ To load it every session without the flag, see
 Anything that is not a path, a number, or a known keyword is treated as a
 decision to vote on. It reviews; it never edits.
 
-## Output modes
+## Output
 
-Append a flag, or set `MAGI_OUTPUT`:
+`/magi` renders one way: a self-contained HTML page, opened in your browser,
+with the animation and synthesized audio. That is the only output mode — no
+chat or terminal choice.
 
-| Mode | What you get |
-|------|--------------|
-| `chat` (default) | the board rendered inline — static, no sound |
-| `tty` | full animation and audio, run in a real terminal |
-| `html` | a self-contained page, opened in your browser |
-
-Chat output is static markdown, so motion and audio are only available in
-`tty` and `html`.
+The terminal animation still exists as `magi-deliberate` below, for direct use
+outside the skill.
 
 ## The binaries
 
