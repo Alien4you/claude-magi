@@ -111,12 +111,25 @@ decision to vote on. It reviews; it never edits.
 
 ## Output
 
-`/magi` renders one way: a self-contained HTML page, opened in your browser,
-with the animation and synthesized audio. That is the only output mode — no
-chat or terminal choice.
+`/magi` renders as an HTML page by default — animation and synthesized audio,
+opened in your browser. Pick a different mode with a flag:
 
-The terminal animation still exists as `magi-deliberate` below, for direct use
-outside the skill.
+```
+/magi                          # HTML page (default)
+/magi --html src/auth/         # same, explicit
+/magi --chat                   # static board inline in the conversation
+/magi --tty                    # terminal animation: hands you the command to run
+```
+
+| Mode | Motion | Sound | Where |
+|------|--------|-------|-------|
+| `--html` (default) | yes | yes | browser |
+| `--chat` | no | no | the transcript |
+| `--tty` | yes | yes | your own terminal |
+
+`--chat` is static markdown, so it can carry neither motion nor sound. `--tty`
+needs a real terminal, which a tool call does not have — so it gives you the
+command to paste rather than running it.
 
 ## The binaries
 

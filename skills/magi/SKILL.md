@@ -1,7 +1,7 @@
 ---
 name: magi
 description: Convene the MAGI system on a proposition. Three agents independently review a code change or an architecture decision and vote; majority carries and dissent raises the alarm. Use when asked to run MAGI, convene MAGI, or put a change or a decision to a three-way vote.
-argument-hint: "[question, path, PR number, or nothing for the current diff]"
+argument-hint: "[question | path | PR number | nothing for the current diff] [--html | --chat | --tty]"
 ---
 
 # MAGI
@@ -79,19 +79,38 @@ Write the three verdicts to a JSON file in the system temp directory:
 }
 ```
 
-Then render it as a self-contained HTML page and open it — this is the only
-output mode:
+Then render it. `<plugin-root>` below is the directory containing this
+`skills/magi/SKILL.md`, two levels up — wherever `bin/` sits relative to this
+file. Use `${CLAUDE_PLUGIN_ROOT}` if it is set; otherwise resolve it from the
+path this skill loaded from.
+
+Pick the mode from `$ARGUMENTS`, defaulting to HTML:
+
+**default, or `--html`** — render the page and open it. Full animation and
+audio:
 
 ```bash
 node <plugin-root>/bin/magi-render <verdict.json>
 ```
 
-`<plugin-root>` is the directory containing this `skills/magi/SKILL.md`, two
-levels up — i.e. wherever `bin/magi-render` sits relative to this file. Use
-`${CLAUDE_PLUGIN_ROOT}` if it is set; otherwise resolve it yourself from the
-path this skill loaded from.
+**`--chat`** — print the board inline in the conversation. Static: no motion,
+no sound. Use when the user wants the result in the transcript:
 
-The binary exits `0` on 可決 and `1` on 否決, so a failed exit code is the
+```bash
+node <plugin-root>/bin/magi-deliberate <verdict.json> --no-animate --silent
+```
+
+Show that output in a fenced block.
+
+**`--tty`** — the terminal animation with audio. A tool call has no TTY, so do
+not run it yourself: keep the verdict JSON at a stable path and give the user
+the command to paste into their own terminal:
+
+```bash
+node <plugin-root>/bin/magi-deliberate <verdict.json>
+```
+
+The binaries exit `0` on 可決 and `1` on 否決, so a failed exit code is the
 verdict, not an error. Do not report it as a failure.
 
 ## 5. Report
