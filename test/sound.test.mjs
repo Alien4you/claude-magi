@@ -4,7 +4,15 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CUES, PROVENANCE, TIMING, cueDuration, createSpeaker, _internals } from '../lib/sound.mjs';
+import {
+  CUES,
+  PROVENANCE,
+  TIMING,
+  cueDuration,
+  verdictCue,
+  createSpeaker,
+  _internals,
+} from '../lib/sound.mjs';
 
 const { renderTones, toWav, RATE } = _internals;
 
@@ -52,10 +60,17 @@ function peaks(samples, fromSec, toSec, count, floorHz = 1000) {
 const within = (actual, expected, tolerance = 0.01) =>
   Math.abs(actual - expected) / expected <= tolerance;
 
-test('every cue the animation asks for exists', () => {
-  for (const cue of ['boot', 'tick', 'think', 'agree', 'reject', 'withhold', 'klaxon', 'approved', 'rejected']) {
-    assert.ok(Array.isArray(CUES[cue]) && CUES[cue].length, `missing cue: ${cue}`);
-  }
+test('every cue the animation asks for exists, and no others', () => {
+  // The units answer together and sound once, so there are no per-unit cues.
+  assert.deepEqual(
+    Object.keys(CUES).sort(),
+    ['agree', 'boot', 'klaxon', 'reject', 'think', 'tick'],
+  );
+});
+
+test('the verdict tone is chosen by the collective decision', () => {
+  assert.equal(verdictCue('APPROVED'), 'agree');
+  assert.equal(verdictCue('REJECTED'), 'reject');
 });
 
 test('every cue declares whether it is measured or derived', () => {
@@ -99,32 +114,56 @@ test('think is three gate-on regions separated by silence', () => {
   }
 });
 
-test('agree rises a fifth and resolves onto reject\'s fundamental', () => {
+test('agree rises a fifth: 1688/3376 then 2531/5062', () => {
   const samples = renderTones(CUES.agree);
-  const first = peaks(samples, 0.02, 0.16, 1, 700);
-  const second = peaks(samples, 0.22, 0.5, 1, 700);
+  const first = peaks(samples, 0.02, 0.16, 2);
+  const second = peaks(samples, 0.3, 1.0, 2);
 
-  assert.ok(within(first[0], 844), `first note ${first[0]} is not 844`);
-  assert.ok(within(second[0], 1266), `second note ${second[0]} is not 1266`);
+  assert.ok(within(first[0], 1688), `note 1 fundamental ${first[0]} is not 1688`);
+  assert.ok(within(first[1], 3376), `note 1 second partial ${first[1]} is not 3376`);
+  assert.ok(within(second[0], 2531), `note 2 fundamental ${second[0]} is not 2531`);
+  assert.ok(within(second[1], 5062), `note 2 second partial ${second[1]} is not 5062`);
   assert.ok(second[0] > first[0], 'the figure must rise');
 });
 
-test('agree answers the rejection at its own length and register', () => {
-  // It read as thin and high while it was half the length an octave up.
-  const len = (cue) => Math.max(...CUES[cue].map((t) => t.start + t.dur));
+test('agree sustains its second note rather than decaying', () => {
+  // A decaying note 2 is what made this read as thin and short.
+  const samples = renderTones(CUES.agree);
+  const rms = (fromSec, toSec) => {
+    const from = Math.floor(fromSec * RATE);
+    const to = Math.floor(toSec * RATE);
+    let sum = 0;
+    for (let i = from; i < to; i++) sum += samples[i] ** 2;
+    return Math.sqrt(sum / (to - from));
+  };
 
-  assert.ok(Math.abs(len('agree') - len('reject')) < 0.02, 'same length as the rejection');
-  assert.ok(
-    CUES.agree.some((t) => t.freq === 1266),
-    'resolves onto the measured rejection fundamental',
-  );
+  const early = rms(0.25, 0.45);
+  const late = rms(0.9, 1.1);
+  const dropDb = 20 * Math.log10(early / late);
+
+  assert.ok(dropDb < 3, `note 2 decays ${dropDb.toFixed(1)} dB; it must be held`);
+  assert.ok(CUES.agree.every((t) => !t.decay), 'no cue tone carries a decay');
+});
+
+test('the two verdicts carry equal weight: within 1 dB RMS', () => {
+  // SPEC §5: if agree reads quieter, the sustain length or note-2 amplitude
+  // has been altered. Neither verdict may outweigh the other.
+  const rms = (cue) => {
+    const s = renderTones(CUES[cue]);
+    let sum = 0;
+    for (const v of s) sum += v ** 2;
+    return Math.sqrt(sum / s.length);
+  };
+
+  const deltaDb = Math.abs(20 * Math.log10(rms('agree') / rms('reject')));
+  assert.ok(deltaDb <= 1, `verdicts differ by ${deltaDb.toFixed(2)} dB RMS`);
 });
 
 test('every pitch in the set comes from the measured partials', () => {
-  // SPEC: build new cues from the measured partials rather than inventing
-  // unrelated pitches. 844/1688 are the fifth below reject's measured
-  // fundamental (1266 x 2/3) and its octave — the only derived pitches.
-  const allowed = new Set([1266, 2531, 1705, 3410, 5115, 844, 1688]);
+  // SPEC §6.2: build new cues from the measured partials rather than
+  // inventing unrelated pitches. 1688/3376/5062 are agree's derived fifth,
+  // itself built on reject's measured 2531.
+  const allowed = new Set([1266, 2531, 1705, 3410, 5115, 1688, 3376, 5062]);
 
   for (const [name, tones] of Object.entries(CUES)) {
     for (const tone of tones) {
@@ -225,6 +264,7 @@ test('the silence between the last pulse and the verdict is 0.275 s', () => {
 test('cueDuration reports each cue at its rendered length', () => {
   assert.ok(Math.abs(cueDuration('think') - 1.161) < 1e-9, 'three pulses, last one 277 ms');
   assert.ok(Math.abs(cueDuration('reject') - 1.24) < 1e-9);
-  assert.ok(Math.abs(cueDuration('agree') - 1.24) < 1e-9);
+  assert.ok(Math.abs(cueDuration('agree') - 1.24) < 1e-9, 'both verdicts run 1.24 s');
   assert.equal(cueDuration('no-such-cue'), 0);
+  assert.equal(cueDuration('withhold'), 0, 'per-unit cues are gone');
 });

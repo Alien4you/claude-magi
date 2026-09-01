@@ -36,6 +36,11 @@ copies of one person's judgement, split along different axes, forced to agree.
 They run in parallel with no shared context, so none can see another's
 reasoning. That independence is what makes a 2-1 split mean something.
 
+On screen the console deliberates as one: all three units come online together,
+blink in step with the pulse train for about five seconds, then answer at the
+same instant. One tone sounds on the collective verdict — units are never
+sounded individually, as in the source.
+
 **Majority carries.** Abstentions count toward neither side. A deadlock fails
 closed to 否決 — an undecided MAGI never green-lights anything.
 
@@ -125,16 +130,24 @@ tone-prominence matching against the original broadcast audio.
 |-----|-----------|---------------|
 | `think` | measured | 1705, 3410, 5115 — gated, 442 ms period, 277 ms on |
 | `reject` | measured | 1266, 2531 — sustained, 1.24 s |
-| `agree` | derived | 844 → 1266, a rising fifth resolving onto reject's fundamental |
+| `agree` | derived | 1688 → 2531, a rising fifth on reject's second partial, sustained |
 | `klaxon` | derived | 1266 alternating with 1705 |
-| `boot`, `tick`, `withhold`, `approved` | derived | built from the same partials |
+| `boot`, `tick` | derived | built from the same partials |
 
-The source contains no agreement chime, so `agree` is designed rather than
+The source contains no second console tone, so `agree` is designed rather than
 found — that distinction is recorded per cue in `lib/sound.mjs` and asserted by
-the tests. It rises a fifth from 844 Hz (= 1266 x 2/3) and settles on reject's
-exact measured spectrum, so assent and refusal answer in the same register and
-at the same length. If you add a cue, build it from the measured partials and
-label it derived.
+the tests. It runs the same 1.24 s as the rejection and its second note is
+*held*, not decayed, so the two verdicts land within 0.4 dB RMS of each other:
+the rising figure carries the difference in meaning, not loudness. If you add a
+cue, build it from the measured partials and label it derived.
+
+**One deliberate divergence from the source.** On screen the 1266 Hz tone fires
+on ALL GREEN / 終了 — it is the episode's *all-clear*, the moment all three
+units agree, not a refusal. The matched scene is a routine diagnostic that
+passes, and no rejection cue exists in the episode at all. This project assigns
+that tone to `reject` by decision: the sound is authentic, the label is
+reassigned on purpose. To follow the source instead, swap the two cue names —
+nothing else changes.
 
 Playback follows the scene: `think` loops on its 442 ms period (three pulses,
 1.326 s), then 0.275 s of silence, then the verdict — 1.436 s from the first
@@ -161,7 +174,7 @@ project.
 ## Development
 
 ```bash
-npm test        # 70 tests, no dependencies
+npm test        # 72 tests, no dependencies
 npm run demo
 ```
 
