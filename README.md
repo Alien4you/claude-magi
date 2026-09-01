@@ -46,18 +46,20 @@ closed to 否決 — an undecided MAGI never green-lights anything.
 
 ## Install
 
-The repo self-hosts a marketplace, so it installs as a normal tracked plugin:
+The repo self-hosts a marketplace, so it installs as a normal tracked plugin
+straight from GitHub — no clone needed:
+
+```bash
+claude plugin marketplace add Alien4you/claude-magi
+claude plugin install magi@claude-magi
+```
+
+`marketplace add` takes a GitHub repo, a URL, or a local path, so a checkout
+works too:
 
 ```bash
 git clone https://github.com/Alien4you/claude-magi.git
 claude plugin marketplace add ./claude-magi
-claude plugin install magi@claude-magi
-```
-
-Or point the marketplace straight at GitHub, without cloning:
-
-```bash
-claude plugin marketplace add Alien4you/claude-magi
 claude plugin install magi@claude-magi
 ```
 
@@ -72,13 +74,16 @@ claude plugin details magi
 You want to see `Skills (1)` **and** `Agents (3)`.
 
 Installing copies the plugin into `~/.claude/plugins/cache/`, pinned to a
-commit. It is a copy, not a link, so editing the repo does not change what runs
-— pick up changes with:
+commit. It is a copy, not a link, so editing the repo does not change what
+runs — pick up changes with:
 
 ```bash
 claude plugin marketplace update claude-magi
 claude plugin install magi@claude-magi
 ```
+
+If the marketplace points at GitHub, that pulls what is on `main`, so commit
+and push before updating.
 
 ### While developing
 
