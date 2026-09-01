@@ -1,0 +1,13 @@
+{
+  "name": "claude-magi",
+  "owner": {
+    "name": "Aram Ramazyan"
+  },
+  "plugins": [
+    {
+      "name": "magi",
+      "source": "./",
+      "description": "Three agents — Melchior, Balthasar, Casper — independently review a code change or architecture decision and vote. Majority carries; dissent raises the alarm."
+    }
+  ]
+}
