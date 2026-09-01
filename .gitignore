@@ -1,4 +1,5 @@
 node_modules/
 *.log
 magi-demo.html
+magi-reject*.html
 .DS_Store

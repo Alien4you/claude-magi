@@ -1,137 +1,9 @@
-/**
- * Renders a tallied MAGI deliberation into a single self-contained HTML page.
- *
- * The chrome follows the NERV terminal closely: a black panel inside an orange
- * frame, 質問 / 解決 headers in stretched kanji flanked by rules, a CODE block
- * of file metadata, a status box, and the three units as clipped polygons in a
- * triangle joined by angled orange connectors around a centre marked MAGI.
- * Panel geometry, palette and the flicker cadence match the reference
- * implementation at github.com/TomaszRewak/MAGI, which reproduces the display
- * from the series.
- *
- * No external assets, no network calls, no dependencies. Cue definitions are
- * the same ones `sound.mjs` uses, re-synthesized with the Web Audio API, so
- * the terminal and the page sound identical.
- */
-
-import { CUES, GATE, TIMING, cueDuration, verdictCue } from './sound.mjs';
-
-const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-
-/** Escape text for interpolation into HTML markup. */
-export function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (c) => ESCAPES[c]);
-}
-
-/**
- * Serialize data for embedding inside a <script> tag. `<` and `>` are escaped
- * so a `</script>` inside a diff or a finding cannot break out of the tag.
- */
-export function embedJson(value) {
-  return JSON.stringify(value)
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
-}
-
-const UNIT_META = {
-  'BALTHASAR-2': { display: 'BALTHASAR • 2', persona: 'MOTHER', lens: 'SAFETY / HARM', slot: 'balthasar' },
-  'CASPER-3': { display: 'CASPER • 3', persona: 'WOMAN', lens: 'PRAGMATICS', slot: 'casper' },
-  'MELCHIOR-1': { display: 'MELCHIOR • 1', persona: 'SCIENTIST', lens: 'LOGIC / DATA', slot: 'melchior' },
-};
-
-/** Drawing order is the triangle, not the canonical vote order. */
-const DRAW_ORDER = ['BALTHASAR-2', 'CASPER-3', 'MELCHIOR-1'];
-
-const VERDICT_META = {
-  APPROVE: { jp: '肯定', en: 'AFFIRMATIVE', tone: 'approve' },
-  REJECT: { jp: '否定', en: 'NEGATIVE', tone: 'reject' },
-  ABSTAIN: { jp: '保留', en: 'WITHHELD', tone: 'abstain' },
-};
-
-function findingHtml(finding) {
-  const severity = String(finding?.severity ?? 'note').toLowerCase();
-  const where = [finding?.file, finding?.line].filter(Boolean).join(':');
-
-  return `
-      <li class="finding sev-${escapeHtml(severity)}">
-        <span class="sev">${escapeHtml(severity)}</span>
-        ${where ? `<code class="where">${escapeHtml(where)}</code>` : ''}
-        <span class="what">${escapeHtml(finding?.summary ?? '')}</span>
-      </li>`;
-}
-
-function panelHtml(vote, isDissenter) {
-  const meta = UNIT_META[vote.agent];
-  const verdict = VERDICT_META[vote.verdict];
-
-  return `
-      <div class="panel slot-${meta.slot} wise-man" data-agent="${escapeHtml(vote.agent)}"
-           data-tone="${verdict.tone}"${isDissenter ? ' data-dissent="true"' : ''}>
-        <div class="inner">
-          <span class="unit">${escapeHtml(meta.display)}</span>
-          <span class="glyph"><b class="jp">審議中</b><i class="en">DELIBERATING</i></span>
-        </div>
-      </div>`;
-}
-
-function reasoningHtml(vote) {
-  const meta = UNIT_META[vote.agent];
-  const verdict = VERDICT_META[vote.verdict];
-  const findings = vote.findings ?? [];
-
-  return `
-      <article class="reasoning" data-tone="${verdict.tone}">
-        <header>
-          <span class="r-unit">${escapeHtml(meta.display)}</span>
-          <span class="r-lens">${escapeHtml(meta.lens)}</span>
-          <span class="r-verdict">${escapeHtml(verdict.jp)} · ${escapeHtml(verdict.en)}</span>
-        </header>
-        <p class="headline">${escapeHtml(vote.headline)}</p>
-        ${findings.length ? `<ul class="findings">${findings.map(findingHtml).join('')}</ul>` : ''}
-      </article>`;
-}
-
-/**
- * @param {{proposition: string, target?: string, timestamp?: string, result: object}} report
- * @returns {string} a complete HTML document
- */
-export function renderHtml(report) {
-  const { result } = report;
-  const dissent = new Set(result.dissenters);
-  const timestamp = report.timestamp ?? new Date().toISOString().replace('T', ' ').slice(0, 19);
-  const alert = result.dissenters.length > 0 || result.decision === 'REJECTED';
-
-  const votesByAgent = new Map(result.votes.map((v) => [v.agent, v]));
-  const drawn = DRAW_ORDER.map((agent) => votesByAgent.get(agent)).filter(Boolean);
-
-  const plan = {
-    cues: CUES,
-    order: drawn.map((v) => ({
-      agent: v.agent,
-      tone: VERDICT_META[v.verdict].tone,
-      jp: VERDICT_META[v.verdict].jp,
-      en: VERDICT_META[v.verdict].en,
-      dissent: dissent.has(v.agent),
-    })),
-    approved: result.decision === 'APPROVED',
-    verdictCue: verdictCue(result.decision),
-    dissent: result.dissenters.length > 0,
-    label: result.label,
-    timing: TIMING,
-    gate: GATE,
-    thinkPartials: [[1705, 0.3], [3410, 0.4], [5115, 0.14]],
-    // Cue lengths, so the page holds each tone for exactly as long as it sounds.
-    durations: Object.fromEntries(Object.keys(CUES).map((c) => [c, cueDuration(c)])),
-  };
-
-  return `<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MAGI — ${escapeHtml(result.label)} ${escapeHtml(result.decision)}</title>
+<title>MAGI — 否決 REJECTED</title>
 <style>
   :root {
     --orange: #ff8d00;
@@ -340,7 +212,7 @@ export function renderHtml(report) {
   </svg>
   <h1 class="gate-title">MAGI</h1>
   <p class="gate-sub">NERV · CENTRAL DOGMA · DELIBERATION TERMINAL</p>
-  <p class="gate-prop">${escapeHtml(report.proposition)}</p>
+  <p class="gate-prop">Abandon the claude-magi project and stop work on it.</p>
   <button id="begin" type="button">審議開始 · BEGIN</button>
 </div>
 
@@ -352,8 +224,8 @@ export function renderHtml(report) {
     <div class="header right"><hr><hr><span>解決</span><hr><hr></div>
 
     <div class="system-status">
-      <div>CODE:${alert ? '601' : '127'}</div>
-      <div>FILE:${escapeHtml(report.target ?? 'MAGI_SYS')}</div>
+      <div>CODE:601</div>
+      <div>FILE:claude-magi · 26 files</div>
       <div>EXTENTION:0256</div>
       <div>EX_MODE:ON</div>
       <div>PRIORITY:AAA</div>
@@ -365,37 +237,144 @@ export function renderHtml(report) {
     <div class="connection casper-melchior"></div>
     <div class="connection balthasar-melchior"></div>
 
-    ${drawn.map((v) => panelHtml(v, dissent.has(v.agent))).join('')}
+    
+      <div class="panel slot-balthasar wise-man" data-agent="BALTHASAR-2"
+           data-tone="reject">
+        <div class="inner">
+          <span class="unit">BALTHASAR • 2</span>
+          <span class="glyph"><b class="jp">審議中</b><i class="en">DELIBERATING</i></span>
+        </div>
+      </div>
+      <div class="panel slot-casper wise-man" data-agent="CASPER-3"
+           data-tone="reject">
+        <div class="inner">
+          <span class="unit">CASPER • 3</span>
+          <span class="glyph"><b class="jp">審議中</b><i class="en">DELIBERATING</i></span>
+        </div>
+      </div>
+      <div class="panel slot-melchior wise-man" data-agent="MELCHIOR-1"
+           data-tone="reject">
+        <div class="inner">
+          <span class="unit">MELCHIOR • 1</span>
+          <span class="glyph"><b class="jp">審議中</b><i class="en">DELIBERATING</i></span>
+        </div>
+      </div>
 
     <div class="title">MAGI</div>
   </div>
 
   <p class="proposition">
     <span class="lbl">議題 · PROPOSITION</span>
-    ${escapeHtml(report.proposition)}
+    Abandon the claude-magi project and stop work on it.
   </p>
 
-  <div id="verdict" class="${result.decision.toLowerCase()}">
-    <div class="big">${escapeHtml(result.label)}</div>
-    <div class="roman">${escapeHtml(result.decision)}${result.deadlocked ? ' · DEADLOCK · FAILED CLOSED' : ''}</div>
-    <div class="count">${escapeHtml(result.tallyText)}${
-      result.dissenters.length
-        ? ` · DISSENT: ${escapeHtml(result.dissenters.join(', '))}`
-        : result.unanimous
-          ? ' · UNANIMOUS'
-          : ''
-    } · ${escapeHtml(timestamp)}</div>
+  <div id="verdict" class="rejected">
+    <div class="big">否決</div>
+    <div class="roman">REJECTED</div>
+    <div class="count">3-0 · UNANIMOUS · 2026-09-01 00:22:57</div>
   </div>
 
   <div class="report">
-    ${result.votes.map(reasoningHtml).join('')}
+    
+      <article class="reasoning" data-tone="reject">
+        <header>
+          <span class="r-unit">MELCHIOR • 1</span>
+          <span class="r-lens">LOGIC / DATA</span>
+          <span class="r-verdict">否定 · NEGATIVE</span>
+        </header>
+        <p class="headline">Core is correct and tested; the failure is an install-mode mismatch, not a broken design</p>
+        <ul class="findings">
+      <li class="finding sev-major">
+        <span class="sev">major</span>
+        <code class="where">~/.claude/skills/magi</code>
+        <span class="what">Root cause found: the repo is symlinked into ~/.claude/skills/, the skills-directory path. It loads SKILL.md only and does not scan agents/. This is a user install-method error, not a defect in the built code.</span>
+      </li>
+      <li class="finding sev-major">
+        <span class="sev">major</span>
+        <code class="where">SKILL.md:88</code>
+        <span class="what">Second consequence of the same mismatch: ${CLAUDE_PLUGIN_ROOT} is only defined for plugin-provided skills. Under the skills-directory install it expands empty, so step 4 would have run `node /bin/magi-deliberate`.</span>
+      </li>
+      <li class="finding sev-major">
+        <span class="sev">major</span>
+        <code class="where">.claude-plugin/plugin.json</code>
+        <span class="what">Hybrid layout: a root SKILL.md (skills-directory convention) plus .claude-plugin/plugin.json and agents/ (plugin convention), with no skills/ directory. Neither install mode delivers the skill and the agents together. The fix is moving SKILL.md into skills/magi/, not a redesign.</span>
+      </li>
+      <li class="finding sev-major">
+        <span class="sev">major</span>
+        <code class="where">test/</code>
+        <span class="what">All 72 tests cover the tally and the presentation layer. Zero cover the orchestration path. The only untested subsystem is the one that failed on first execution.</span>
+      </li>
+      <li class="finding sev-minor">
+        <span class="sev">minor</span>
+        <code class="where">lib/verdict.mjs:103</code>
+        <span class="what">summarize() prints &#39;unanimous&#39; whenever dissenters is empty, so REJECT/ABSTAIN/ABSTAIN renders as &#39;(1-0) — unanimous&#39; while result.unanimous is false. Label only, never the decision.</span>
+      </li></ul>
+      </article>
+      <article class="reasoning" data-tone="reject">
+        <header>
+          <span class="r-unit">BALTHASAR • 2</span>
+          <span class="r-lens">SAFETY / HARM</span>
+          <span class="r-verdict">否定 · NEGATIVE</span>
+        </header>
+        <p class="headline">Nobody is harmed if this continues; the injection defenses hold. Do not abandon it.</p>
+        <ul class="findings">
+      <li class="finding sev-major">
+        <span class="sev">major</span>
+        <code class="where">agents/*.md:4</code>
+        <span class="what">All three units are granted Bash, yet their job is to read untrusted diffs that can carry prompt injection. A reviewer needs no shell. Drop Bash from all three frontmatters and the untrusted-input path ends at read-only tools.</span>
+      </li>
+      <li class="finding sev-minor">
+        <span class="sev">minor</span>
+        <code class="where">lib/sound.mjs:268</code>
+        <span class="what">playerFor() interpolates the cue path into a single-quoted PowerShell string. A sound directory containing an apostrophe breaks the quoting and executes on Windows. Operator-controlled, but it is the only string-concatenated command in the codebase.</span>
+      </li>
+      <li class="finding sev-note">
+        <span class="sev">note</span>
+        <code class="where">lib/frames.mjs:75</code>
+        <span class="what">sanitize() verified against OSC 0/52, CSI, DCS, C1, backspace and bracketed-paste payloads: the trailing control-range pass strips every residual ESC, so the filter fails closed.</span>
+      </li>
+      <li class="finding sev-note">
+        <span class="sev">note</span>
+        <code class="where">NOTICE</code>
+        <span class="what">IP exposure is bounded and lands only on the author. No GAINAX/khara assets ship. The worst realistic outcome is a takedown of one public repo, with no user data and no third party affected. Not a safety reason to stop.</span>
+      </li></ul>
+      </article>
+      <article class="reasoning" data-tone="reject">
+        <header>
+          <span class="r-unit">CASPER • 3</span>
+          <span class="r-lens">PRAGMATICS</span>
+          <span class="r-verdict">否定 · NEGATIVE</span>
+        </header>
+        <p class="headline">The first-run failure is a misplaced SKILL.md, not a design flaw — do not abandon over a path bug.</p>
+        <ul class="findings">
+      <li class="finding sev-critical">
+        <span class="sev">critical</span>
+        <code class="where">SKILL.md:1</code>
+        <span class="what">Layout bug, not a design flaw: SKILL.md sits at the repo root instead of skills/magi/SKILL.md, so the plugin was never registered and agents/ was never scanned. One `mkdir -p skills/magi &amp;&amp; git mv SKILL.md skills/magi/` almost certainly fixes it.</span>
+      </li>
+      <li class="finding sev-major">
+        <span class="sev">major</span>
+        <code class="where">agents/casper.md:5</code>
+        <span class="what">No agent pins a model:, so all three inherit the top model and the 3x token cost lands at full price. Pinning the units to a cheaper model is one line per file and removes most of the cost objection.</span>
+      </li>
+      <li class="finding sev-note">
+        <span class="sev">note</span>
+        <code class="where">package.json:11</code>
+        <span class="what">Maintenance burden is near zero and that dominates the abandon calculus: zero dependencies, Node stdlib only, 72/72 passing in 7s. No dependency treadmill, no CVE churn, no runtime to operate.</span>
+      </li>
+      <li class="finding sev-note">
+        <span class="sev">note</span>
+        
+        <span class="what">The built-in /code-review is one reviewer making one pass; this runs three axes with no shared context and records the dissent. That is a real methodological difference, not a reskin. A review tool that gets run beats a better one that does not.</span>
+      </li></ul>
+      </article>
   </div>
 
   <button class="replay" type="button" id="replay">再審議 · REPLAY</button>
 </div>
 
 <script>
-const PLAN = ${embedJson(plan)};
+const PLAN = {"cues":{"think":[{"start":0,"dur":0.22345267087820916,"freq":1705,"amp":0.3,"attack":0.006,"release":0.006},{"start":0,"dur":0.22345267087820916,"freq":3410,"amp":0.4,"attack":0.006,"release":0.006},{"start":0,"dur":0.22345267087820916,"freq":5115,"amp":0.14,"attack":0.006,"release":0.006},{"start":0.29572897871741094,"dur":0.2199617442801967,"freq":1705,"amp":0.3,"attack":0.006,"release":0.006},{"start":0.29572897871741094,"dur":0.2199617442801967,"freq":3410,"amp":0.4,"attack":0.006,"release":0.006},{"start":0.29572897871741094,"dur":0.2199617442801967,"freq":5115,"amp":0.14,"attack":0.006,"release":0.006},{"start":0.6867768707122468,"dur":0.23541196155343203,"freq":1705,"amp":0.3,"attack":0.006,"release":0.006},{"start":0.6867768707122468,"dur":0.23541196155343203,"freq":3410,"amp":0.4,"attack":0.006,"release":0.006},{"start":0.6867768707122468,"dur":0.23541196155343203,"freq":5115,"amp":0.14,"attack":0.006,"release":0.006},{"start":1.0225802860645392,"dur":0.2229538736754657,"freq":1705,"amp":0.3,"attack":0.006,"release":0.006},{"start":1.0225802860645392,"dur":0.2229538736754657,"freq":3410,"amp":0.4,"attack":0.006,"release":0.006},{"start":1.0225802860645392,"dur":0.2229538736754657,"freq":5115,"amp":0.14,"attack":0.006,"release":0.006},{"start":1.3903292169948482,"dur":0.21639992520153517,"freq":1705,"amp":0.3,"attack":0.006,"release":0.006},{"start":1.3903292169948482,"dur":0.21639992520153517,"freq":3410,"amp":0.4,"attack":0.006,"release":0.006},{"start":1.3903292169948482,"dur":0.21639992520153517,"freq":5115,"amp":0.14,"attack":0.006,"release":0.006},{"start":1.7792062597099227,"dur":0.21743270029596973,"freq":1705,"amp":0.3,"attack":0.006,"release":0.006},{"start":1.7792062597099227,"dur":0.21743270029596973,"freq":3410,"amp":0.4,"attack":0.006,"release":0.006},{"start":1.7792062597099227,"dur":0.21743270029596973,"freq":5115,"amp":0.14,"attack":0.006,"release":0.006},{"start":2.1180065800656473,"dur":0.2063482327621804,"freq":1705,"amp":0.3,"attack":0.006,"release":0.006},{"start":2.1180065800656473,"dur":0.2063482327621804,"freq":3410,"amp":0.4,"attack":0.006,"release":0.006},{"start":2.1180065800656473,"dur":0.2063482327621804,"freq":5115,"amp":0.14,"attack":0.006,"release":0.006},{"start":2.4213547263638397,"dur":0.20689343944810323,"freq":1705,"amp":0.3,"attack":0.006,"release":0.006},{"start":2.4213547263638397,"dur":0.20689343944810323,"freq":3410,"amp":0.4,"attack":0.006,"release":0.006},{"start":2.4213547263638397,"dur":0.20689343944810323,"freq":5115,"amp":0.14,"attack":0.006,"release":0.006}],"reject":[{"start":0,"dur":1.24,"freq":1266,"amp":0.55,"attack":0.008,"release":0.12},{"start":0,"dur":1.24,"freq":2531,"amp":0.045,"attack":0.008,"release":0.12}],"agree":[{"start":0,"dur":0.186,"freq":1688,"amp":0.5,"attack":0.008,"release":0.006},{"start":0,"dur":0.186,"freq":3376,"amp":0.045,"attack":0.008,"release":0.006},{"start":0.18,"dur":1.06,"freq":2531,"amp":0.58,"attack":0.006,"release":0.12},{"start":0.18,"dur":1.06,"freq":5062,"amp":0.052,"attack":0.006,"release":0.12}],"tick":[{"start":0,"dur":0.09,"freq":1705,"amp":0.3,"attack":0.006,"release":0.02},{"start":0,"dur":0.09,"freq":3410,"amp":0.4,"attack":0.006,"release":0.02},{"start":0,"dur":0.09,"freq":5115,"amp":0.14,"attack":0.006,"release":0.02}],"boot":[{"start":0,"dur":0.14,"freq":1705,"amp":0.3,"attack":0.006,"release":0.006},{"start":0,"dur":0.14,"freq":3410,"amp":0.4,"attack":0.006,"release":0.006},{"start":0,"dur":0.14,"freq":5115,"amp":0.14,"attack":0.006,"release":0.006},{"start":0.2,"dur":0.14,"freq":1705,"amp":0.3,"attack":0.006,"release":0.006},{"start":0.2,"dur":0.14,"freq":3410,"amp":0.4,"attack":0.006,"release":0.006},{"start":0.2,"dur":0.14,"freq":5115,"amp":0.14,"attack":0.006,"release":0.006}],"klaxon":[{"start":0,"dur":0.2,"freq":1266,"amp":0.5,"attack":0.006,"release":0.006},{"start":0,"dur":0.2,"freq":2531,"amp":0.08,"attack":0.006,"release":0.006},{"start":0.221,"dur":0.2,"freq":1705,"amp":0.42,"attack":0.006,"release":0.006},{"start":0.221,"dur":0.2,"freq":3410,"amp":0.34,"attack":0.006,"release":0.006},{"start":0.442,"dur":0.2,"freq":1266,"amp":0.5,"attack":0.006,"release":0.006},{"start":0.442,"dur":0.2,"freq":2531,"amp":0.08,"attack":0.006,"release":0.006},{"start":0.663,"dur":0.2,"freq":1705,"amp":0.42,"attack":0.006,"release":0.006},{"start":0.663,"dur":0.2,"freq":3410,"amp":0.34,"attack":0.006,"release":0.006},{"start":0.884,"dur":0.2,"freq":1266,"amp":0.5,"attack":0.006,"release":0.006},{"start":0.884,"dur":0.2,"freq":2531,"amp":0.08,"attack":0.006,"release":0.006},{"start":1.105,"dur":0.2,"freq":1705,"amp":0.42,"attack":0.006,"release":0.006},{"start":1.105,"dur":0.2,"freq":3410,"amp":0.34,"attack":0.006,"release":0.006},{"start":1.326,"dur":0.2,"freq":1266,"amp":0.5,"attack":0.006,"release":0.006},{"start":1.326,"dur":0.2,"freq":2531,"amp":0.08,"attack":0.006,"release":0.006},{"start":1.5470000000000002,"dur":0.2,"freq":1705,"amp":0.42,"attack":0.006,"release":0.006},{"start":1.5470000000000002,"dur":0.2,"freq":3410,"amp":0.34,"attack":0.006,"release":0.006},{"start":1.768,"dur":0.2,"freq":1266,"amp":0.5,"attack":0.006,"release":0.006},{"start":1.768,"dur":0.2,"freq":2531,"amp":0.08,"attack":0.006,"release":0.006},{"start":1.989,"dur":0.2,"freq":1705,"amp":0.42,"attack":0.006,"release":0.006},{"start":1.989,"dur":0.2,"freq":3410,"amp":0.34,"attack":0.006,"release":0.006}]},"order":[{"agent":"BALTHASAR-2","tone":"reject","jp":"否定","en":"NEGATIVE","dissent":false},{"agent":"CASPER-3","tone":"reject","jp":"否定","en":"NEGATIVE","dissent":false},{"agent":"MELCHIOR-1","tone":"reject","jp":"否定","en":"NEGATIVE","dissent":false}],"approved":false,"verdictCue":"reject","dissent":false,"label":"否決","timing":{"silenceBeforeVerdict":0.275,"deliberateFor":5},"gate":{"onMean":0.219,"onJitter":0.08,"gapMin":0.072,"gapMax":0.173,"gapMinDelta":0.02,"edgeRamp":0.006,"pulsesPerSecond":3,"episodeTempo":1.28},"thinkPartials":[[1705,0.3],[3410,0.4],[5115,0.14]],"durations":{"think":2.628248165811943,"reject":1.24,"agree":1.24,"tick":0.09,"boot":0.34,"klaxon":2.189}};
 
 /* ---------- audio: the same cue definitions the terminal uses ---------- */
 let ctx = null;
@@ -604,5 +583,3 @@ document.getElementById('replay').addEventListener('click', () => {
 </script>
 </body>
 </html>
-`;
-}

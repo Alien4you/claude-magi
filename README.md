@@ -128,7 +128,7 @@ tone-prominence matching against the original broadcast audio.
 
 | cue | provenance | partials (Hz) |
 |-----|-----------|---------------|
-| `think` | measured | 1705, 3410, 5115 — gated, 442 ms period, 277 ms on |
+| `think` | measured | 1705, 3410, 5115 — irregularly gated, see below |
 | `reject` | measured | 1266, 2531 — sustained, 1.24 s |
 | `agree` | derived | 1688 → 2531, a rising fifth on reject's second partial, sustained |
 | `klaxon` | derived | 1266 alternating with 1705 |
@@ -149,11 +149,20 @@ that tone to `reject` by decision: the sound is authentic, the label is
 reassigned on purpose. To follow the source instead, swap the two cue names —
 nothing else changes.
 
-Playback follows the scene: `think` loops on its 442 ms period (three pulses,
-1.326 s), then 0.275 s of silence, then the verdict — 1.436 s from the first
-pulse onset, matching `think` at 02:10.219 and `reject` at 02:11.655. The two
-never overlap. `TIMING` in `lib/sound.mjs` is the single source for both
-renderers.
+**The deliberation train is irregular, and cannot be produced by looping.** The
+on-duration is near-constant at 219 ms (±8%); the *gap* is what varies, uniform
+across 72–173 ms, with successive gaps forced at least 20 ms apart so no steady
+beat emerges. Period lands at 291–392 ms, CV ≈ 0.10.
+
+`thinkGates()` generates a train for whatever duration you need and
+`thinkTones()` renders it. Pass a seed for a reproducible render; omit it and
+every deliberation sounds different. `GATE.episodeTempo` (1.28×) scales to the
+episode's slower take, which is a different recording rather than a
+time-stretch — identical pitch, slower gates.
+
+The panels blink from the generated gate list rather than a timer, so they
+flash exactly when the pulses sound. After the last pulse: 0.275 s of silence,
+then the verdict. The two never overlap, as they do not in the source.
 
 Parameters are measurements, not copied audio, so the synthesized voices carry
 no sampled material. Tests verify the rendered output against the published FFT
@@ -174,7 +183,7 @@ project.
 ## Development
 
 ```bash
-npm test        # 72 tests, no dependencies
+npm test        # 78 tests, no dependencies
 npm run demo
 ```
 

@@ -6,13 +6,27 @@ import { join } from 'node:path';
 
 import {
   CUES,
+  GATE,
   PROVENANCE,
   TIMING,
   cueDuration,
   verdictCue,
+  thinkGates,
+  thinkTones,
   createSpeaker,
   _internals,
 } from '../lib/sound.mjs';
+
+const mean = (a) => a.reduce((s, v) => s + v, 0) / a.length;
+const sd = (a) => Math.sqrt(mean(a.map((v) => (v - mean(a)) ** 2)));
+
+/** on-durations, gaps and periods of a gate list, in seconds. */
+function gateStats(gates) {
+  const on = gates.map((g) => g.end - g.start);
+  const gaps = gates.slice(1).map((g, i) => g.start - gates[i].end);
+  const periods = gates.slice(1).map((g, i) => g.start - gates[i].start);
+  return { on, gaps, periods };
+}
 
 const { renderTones, toWav, RATE } = _internals;
 
@@ -103,14 +117,77 @@ test("think's second partial is louder than its fundamental", () => {
   assert.ok(twoF > f, `2f (${twoF}) must exceed f (${f})`);
 });
 
-test('think is three gate-on regions separated by silence', () => {
-  const samples = renderTones(CUES.think);
-  const onAt = (sec) => Math.abs(samples[Math.floor(sec * RATE)]) > 0.05;
+test('the think train is irregular: the gap varies, the on-duration does not', () => {
+  // SPEC: on-duration near-constant at 219 ms, gap uniform 72-173 ms.
+  const { on, gaps } = gateStats(thinkGates({ pulses: 200, seed: 7 }));
 
-  // 277 ms on, then 165 ms silent, repeating on a 442 ms period.
-  for (const pulse of [0, 1, 2]) {
-    assert.ok(onAt(pulse * 0.442 + 0.13), `pulse ${pulse} should be sounding`);
-    assert.ok(!onAt(pulse * 0.442 + 0.36), `gap after pulse ${pulse} should be silent`);
+  assert.ok(Math.abs(mean(on) - 0.219) < 0.015, `on mean ${mean(on)} is not ~219 ms`);
+  assert.ok(sd(on) < 0.02, `on should be near-constant, sd ${sd(on)}`);
+
+  assert.ok(Math.min(...gaps) >= GATE.gapMin - 1e-9, 'no gap below 72 ms');
+  assert.ok(Math.max(...gaps) <= GATE.gapMax + 1e-9, 'no gap above 173 ms');
+  assert.ok(sd(gaps) > 0.02 && sd(gaps) < 0.04, `gap sd ${sd(gaps)} outside 20-40 ms`);
+});
+
+test('successive gaps differ by at least 20 ms, so no steady beat emerges', () => {
+  const { gaps } = gateStats(thinkGates({ pulses: 200, seed: 11 }));
+
+  for (let i = 1; i < gaps.length; i++) {
+    assert.ok(
+      Math.abs(gaps[i] - gaps[i - 1]) >= GATE.gapMinDelta - 1e-9,
+      `gaps ${i - 1} and ${i} are ${Math.abs(gaps[i] - gaps[i - 1])} apart`,
+    );
+  }
+});
+
+test('period CV sits between 0.06 and 0.14 — below 0.03 means no randomization', () => {
+  const { periods } = gateStats(thinkGates({ pulses: 200, seed: 3 }));
+  const cv = sd(periods) / mean(periods);
+
+  assert.ok(cv > 0.06 && cv < 0.14, `period CV ${cv.toFixed(3)} outside 0.06-0.14`);
+  assert.ok(Math.abs(mean(periods) - 0.341) < 0.02, `period mean ${mean(periods)} is not ~341 ms`);
+});
+
+test('a seed makes a train reproducible; omitting it does not', () => {
+  assert.deepEqual(thinkGates({ pulses: 12, seed: 42 }), thinkGates({ pulses: 12, seed: 42 }));
+  assert.notDeepEqual(thinkGates({ pulses: 12 }), thinkGates({ pulses: 12 }));
+});
+
+test('the episode tempo scales the train by 1.28x', () => {
+  const ref = gateStats(thinkGates({ pulses: 60, seed: 5 }));
+  const ep = gateStats(thinkGates({ pulses: 60, seed: 5, tempo: GATE.episodeTempo }));
+
+  assert.ok(Math.abs(mean(ep.on) / mean(ref.on) - 1.28) < 0.01, 'on scales');
+  assert.ok(Math.abs(mean(ep.gaps) / mean(ref.gaps) - 1.28) < 0.01, 'gap scales too');
+});
+
+test('a train is generated for a requested duration, not looped', () => {
+  const gates = thinkGates({ seconds: 5 });
+  const last = gates[gates.length - 1].end;
+
+  assert.equal(gates.length, Math.ceil(GATE.pulsesPerSecond * 5));
+  assert.ok(last > 4 && last < 6.5, `5 s of deliberation ran ${last.toFixed(2)} s`);
+});
+
+test('rendered gates sound and fall silent where the gate list says', () => {
+  const gates = thinkGates({ pulses: 6, seed: 9 });
+  const samples = renderTones(thinkTones(gates));
+
+  // Peak over a 2 ms window: a single-sample probe can land on a zero crossing
+  // of the sine and read as silence.
+  const at = (sec) => {
+    const from = Math.floor(sec * RATE);
+    let peak = 0;
+    for (let i = from; i < from + Math.floor(0.002 * RATE); i++) {
+      peak = Math.max(peak, Math.abs(samples[i] ?? 0));
+    }
+    return peak > 0.05;
+  };
+
+  for (const [i, gate] of gates.entries()) {
+    assert.ok(at((gate.start + gate.end) / 2), `pulse ${i} should be sounding`);
+    const next = gates[i + 1];
+    if (next) assert.ok(!at((gate.end + next.start) / 2), `gap after pulse ${i} should be silent`);
   }
 });
 
@@ -238,31 +315,19 @@ test('a missing sound directory falls back to synthesis without throwing', () =>
   speaker.close();
 });
 
-test('scene timing matches the source timecodes', () => {
-  // think at 02:10.219, reject at 02:11.655 → 1.436 s between onsets.
-  assert.equal(TIMING.verdictAfterThinkOnset, 1.436);
-  assert.equal(TIMING.gatePeriod, 0.442);
-  assert.equal(TIMING.gateOn, 0.277);
-  assert.equal(TIMING.pulses, 3);
-
-  // Three gate periods, and the train ends before the verdict starts.
-  assert.ok(Math.abs(TIMING.thinkCycle - 1.326) < 1e-9);
-  assert.ok(
-    TIMING.thinkCycle < TIMING.verdictAfterThinkOnset,
-    'the pulse train must finish before the verdict fires',
-  );
-});
-
 test('the silence between the last pulse and the verdict is 0.275 s', () => {
-  const lastPulseEnds = TIMING.gatePeriod * (TIMING.pulses - 1) + TIMING.gateOn;
-
-  assert.ok(Math.abs(lastPulseEnds - 1.161) < 1e-9);
   assert.ok(Math.abs(TIMING.silenceBeforeVerdict - 0.275) < 1e-9);
   assert.ok(TIMING.silenceBeforeVerdict > 0, 'think and the verdict never overlap');
 });
 
+test('no fixed period survives in the timing table', () => {
+  // The train is irregular, so a caller must generate gates rather than loop.
+  assert.equal(TIMING.gatePeriod, undefined);
+  assert.equal(TIMING.thinkCycle, undefined);
+});
+
 test('cueDuration reports each cue at its rendered length', () => {
-  assert.ok(Math.abs(cueDuration('think') - 1.161) < 1e-9, 'three pulses, last one 277 ms');
+  assert.ok(cueDuration('think') > 0, 'the seeded default train has a length');
   assert.ok(Math.abs(cueDuration('reject') - 1.24) < 1e-9);
   assert.ok(Math.abs(cueDuration('agree') - 1.24) < 1e-9, 'both verdicts run 1.24 s');
   assert.equal(cueDuration('no-such-cue'), 0);
