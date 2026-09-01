@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CUES, PROVENANCE, createSpeaker, _internals } from '../lib/sound.mjs';
+import { CUES, PROVENANCE, TIMING, cueDuration, createSpeaker, _internals } from '../lib/sound.mjs';
 
 const { renderTones, toWav, RATE } = _internals;
 
@@ -14,17 +14,17 @@ const { renderTones, toWav, RATE } = _internals;
  * A plain DFT over a Hann-windowed slice — slow, but this runs over a few
  * thousand samples and avoids pulling in a dependency just to check spectra.
  */
-function peaks(samples, fromSec, toSec, count) {
+function peaks(samples, fromSec, toSec, count, floorHz = 1000) {
   const from = Math.floor(fromSec * RATE);
   const to = Math.min(Math.floor(toSec * RATE), samples.length);
   const n = to - from;
   if (n <= 0) return [];
 
-  // Resolution of ~5 Hz is plenty to separate partials over 1200 Hz apart.
+  // Resolution of ~2 Hz is plenty to separate partials hundreds of Hz apart.
   const step = 2;
   const bins = [];
 
-  for (let freq = 1000; freq <= 6000; freq += step) {
+  for (let freq = floorHz; freq <= 6000; freq += step) {
     let re = 0;
     let im = 0;
     for (let i = 0; i < n; i++) {
@@ -99,21 +99,32 @@ test('think is three gate-on regions separated by silence', () => {
   }
 });
 
-test('agree rises: 1688 Hz then 2531 Hz', () => {
+test('agree rises a fifth and resolves onto reject\'s fundamental', () => {
   const samples = renderTones(CUES.agree);
-  const first = peaks(samples, 0.01, 0.12, 1);
-  const second = peaks(samples, 0.16, 0.4, 1);
+  const first = peaks(samples, 0.02, 0.16, 1, 700);
+  const second = peaks(samples, 0.22, 0.5, 1, 700);
 
-  assert.ok(within(first[0], 1688), `first note ${first[0]} is not 1688`);
-  assert.ok(within(second[0], 2531), `second note ${second[0]} is not 2531`);
+  assert.ok(within(first[0], 844), `first note ${first[0]} is not 844`);
+  assert.ok(within(second[0], 1266), `second note ${second[0]} is not 1266`);
   assert.ok(second[0] > first[0], 'the figure must rise');
+});
+
+test('agree answers the rejection at its own length and register', () => {
+  // It read as thin and high while it was half the length an octave up.
+  const len = (cue) => Math.max(...CUES[cue].map((t) => t.start + t.dur));
+
+  assert.ok(Math.abs(len('agree') - len('reject')) < 0.02, 'same length as the rejection');
+  assert.ok(
+    CUES.agree.some((t) => t.freq === 1266),
+    'resolves onto the measured rejection fundamental',
+  );
 });
 
 test('every pitch in the set comes from the measured partials', () => {
   // SPEC: build new cues from the measured partials rather than inventing
-  // unrelated pitches. 1688/3376/5062 are agree's derived fifth, itself built
-  // on reject's measured 2531.
-  const allowed = new Set([1266, 2531, 1705, 3410, 5115, 1688, 3376, 5062]);
+  // unrelated pitches. 844/1688 are the fifth below reject's measured
+  // fundamental (1266 x 2/3) and its octave — the only derived pitches.
+  const allowed = new Set([1266, 2531, 1705, 3410, 5115, 844, 1688]);
 
   for (const [name, tones] of Object.entries(CUES)) {
     for (const tone of tones) {
@@ -186,4 +197,34 @@ test('a missing sound directory falls back to synthesis without throwing', () =>
   const speaker = createSpeaker({ enabled: true, soundDir: '/nonexistent/magi/cues' });
   assert.doesNotThrow(() => speaker.play('klaxon'));
   speaker.close();
+});
+
+test('scene timing matches the source timecodes', () => {
+  // think at 02:10.219, reject at 02:11.655 → 1.436 s between onsets.
+  assert.equal(TIMING.verdictAfterThinkOnset, 1.436);
+  assert.equal(TIMING.gatePeriod, 0.442);
+  assert.equal(TIMING.gateOn, 0.277);
+  assert.equal(TIMING.pulses, 3);
+
+  // Three gate periods, and the train ends before the verdict starts.
+  assert.ok(Math.abs(TIMING.thinkCycle - 1.326) < 1e-9);
+  assert.ok(
+    TIMING.thinkCycle < TIMING.verdictAfterThinkOnset,
+    'the pulse train must finish before the verdict fires',
+  );
+});
+
+test('the silence between the last pulse and the verdict is 0.275 s', () => {
+  const lastPulseEnds = TIMING.gatePeriod * (TIMING.pulses - 1) + TIMING.gateOn;
+
+  assert.ok(Math.abs(lastPulseEnds - 1.161) < 1e-9);
+  assert.ok(Math.abs(TIMING.silenceBeforeVerdict - 0.275) < 1e-9);
+  assert.ok(TIMING.silenceBeforeVerdict > 0, 'think and the verdict never overlap');
+});
+
+test('cueDuration reports each cue at its rendered length', () => {
+  assert.ok(Math.abs(cueDuration('think') - 1.161) < 1e-9, 'three pulses, last one 277 ms');
+  assert.ok(Math.abs(cueDuration('reject') - 1.24) < 1e-9);
+  assert.ok(Math.abs(cueDuration('agree') - 1.24) < 1e-9);
+  assert.equal(cueDuration('no-such-cue'), 0);
 });

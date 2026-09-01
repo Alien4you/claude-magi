@@ -125,14 +125,22 @@ tone-prominence matching against the original broadcast audio.
 |-----|-----------|---------------|
 | `think` | measured | 1705, 3410, 5115 — gated, 442 ms period, 277 ms on |
 | `reject` | measured | 1266, 2531 — sustained, 1.24 s |
-| `agree` | derived | 1688 → 2531, a rising fifth on reject's second partial |
+| `agree` | derived | 844 → 1266, a rising fifth resolving onto reject's fundamental |
 | `klaxon` | derived | 1266 alternating with 1705 |
 | `boot`, `tick`, `withhold`, `approved` | derived | built from the same partials |
 
 The source contains no agreement chime, so `agree` is designed rather than
 found — that distinction is recorded per cue in `lib/sound.mjs` and asserted by
-the tests. If you add a cue, build it from the measured partials and label it
-derived.
+the tests. It rises a fifth from 844 Hz (= 1266 x 2/3) and settles on reject's
+exact measured spectrum, so assent and refusal answer in the same register and
+at the same length. If you add a cue, build it from the measured partials and
+label it derived.
+
+Playback follows the scene: `think` loops on its 442 ms period (three pulses,
+1.326 s), then 0.275 s of silence, then the verdict — 1.436 s from the first
+pulse onset, matching `think` at 02:10.219 and `reject` at 02:11.655. The two
+never overlap. `TIMING` in `lib/sound.mjs` is the single source for both
+renderers.
 
 Parameters are measurements, not copied audio, so the synthesized voices carry
 no sampled material. Tests verify the rendered output against the published FFT
@@ -153,7 +161,7 @@ project.
 ## Development
 
 ```bash
-npm test        # 66 tests, no dependencies
+npm test        # 70 tests, no dependencies
 npm run demo
 ```
 
