@@ -1,6 +1,6 @@
 {
   "name": "claude-magi",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "MAGI System deliberation for Claude Code: three agents review a proposition and vote, with a terminal verdict animation.",

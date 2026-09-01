@@ -1,10 +1,16 @@
 {
   "name": "magi",
-  "description": "Three agents — Melchior, Balthasar, Casper — independently review a code change or architecture decision and vote. Majority carries; dissent raises the alarm. Verdict plays as a NERV-style terminal animation or HTML page.",
-  "version": "0.1.0",
+  "description": "Three agents \u2014 Melchior, Balthasar, Casper \u2014 independently review a code change or architecture decision and vote. Majority carries; dissent raises the alarm. Verdict plays as a NERV-style terminal animation or HTML page.",
+  "version": "0.2.0",
   "author": {
     "name": "Aram Ramazyan"
   },
   "license": "Apache-2.0",
-  "keywords": ["code-review", "architecture", "decision", "multi-agent", "evangelion"]
+  "keywords": [
+    "code-review",
+    "architecture",
+    "decision",
+    "multi-agent",
+    "evangelion"
+  ]
 }

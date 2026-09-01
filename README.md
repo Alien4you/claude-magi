@@ -85,6 +85,11 @@ claude plugin install magi@claude-magi
 If the marketplace points at GitHub, that pulls what is on `main`, so commit
 and push before updating.
 
+**Updates are gated on the `version` field in `.claude-plugin/plugin.json`,
+not on the commit.** `claude plugin update` reports "already at the latest
+version" and does nothing if the version is unchanged, however many commits
+have landed. Bump it when you want installs to pick the work up.
+
 ### While developing
 
 To run the working tree directly, skipping the copy:
